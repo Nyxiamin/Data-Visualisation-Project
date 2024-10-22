@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
 import plotly.graph_objects as go
 
 # Set page config (must be the first Streamlit command)
@@ -26,23 +23,22 @@ df_summary, df_detailed= load_data()
 df_summary['Enseignements de spécialité'] = df_summary['Enseignements de spécialité'].str.replace(' Spécialité', '', regex=False)
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Home", "Data Insights"])
+page = st.sidebar.radio("Go to", ["Portfolio", "Parcoursup Project"])
 
-if page == "Home":
+if page == "Portfolio":
+    # Title and Introduction
     st.title("Welcome to My Data Science Portfolio")
-
-    st.write("""
-        In this project, I analyze data from Parcoursup, focusing on the educational trends and choices of French high school graduates 
-        from 2021 onwards. The analysis explores how various subject combinations influence their higher education applications, offers, 
-        and final decisions.
-    """)
 
     # About Me Section
     st.header("👩‍🎓 About Me")
-    st.write("I am a computer engineering student with a strong interest in data science and machine learning. I enjoy applying statistical analysis and predictive modeling to drive insights and support decision-making.")
-    st.write("#### Professional Objective")
-    st.write("I am looking for opportunities as a Data Analyst or Machine Learning Engineer, focusing on predictive modeling and natural language processing.")
-
+    me_col1, me_col2 = st.columns(2)
+    with me_col1:
+        st.write("I am a computer engineering student with a strong interest in data science and machine learning. I enjoy applying statistical analysis and predictive modeling to drive insights and support decision-making.")
+        st.write("#### Professional Objective")
+        st.write("I am looking for opportunities as a Data Analyst or Machine Learning Engineer, focusing on predictive modeling and natural language processing.")
+        
+    with me_col2:
+        st.image("IMG_7461.jpg", width=200)  # Adjust the path and size as needed
 
     # Skills and Tools Section
     st.header("🛠️ Skills and Tools")
@@ -135,16 +131,50 @@ if page == "Home":
     st.write("---")
     st.markdown("© 2024 Thaïs Bordessoul. All rights reserved.")
 
-if page == "Data Insights":
+if page == "Parcoursup Project":
     
+    st.title("Parcoursup Admissions from 2021 to 2023")
+    
+    st.write("""
+        In this project, I analyze data from Parcoursup, focusing on the educational trends and choices of French high school graduates 
+        from 2021 onwards. The analysis explores how various subject combinations influence their higher education applications, offers, 
+        and final decisions.
+    """)
+
+    st.write("""This dataset didn't had any issues apart from the fact that I removed the word "Spécialité" at the end of the specialities name.
+                There was only one point of concern: "Ensemble des bacheliers" was a set of special row containing counts of students instead of total of wishes or proposals, for each duos of specialities
+                Therefore, I had to separate my dataset into two to handle these data differently.""")
+    
+
+    
+    # Chapter 1: Trends Over Time
+    st.header("Part 1: Trends Over Time")
+
+    yearly_totals = df_summary.groupby('Année du Baccalauréat').agg({
+        'Nombre de candidats bacheliers ayant confirmé au moins un vœu': 'sum',
+        'Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission': 'sum',
+        'Nombre de candidats bacheliers ayant accepté une proposition d\'admission': 'sum'
+    }).reset_index()
+
+    fig_line = px.line(yearly_totals, x='Année du Baccalauréat', 
+                    y=['Nombre de candidats bacheliers ayant confirmé au moins un vœu',
+                        'Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission',
+                        'Nombre de candidats bacheliers ayant accepté une proposition d\'admission'],
+                    title="Trends in Candidates, Offers, and Acceptances",
+                    labels={'value': 'Number of Candidates', 'variable': 'Category'})
+    st.plotly_chart(fig_line, use_container_width=True)
+
+    st.write("""
+        This line chart shows how the numbers of candidates making wishes, receiving offers, and accepting admissions 
+        have changed over the years. We can remark that the number of candidates was overall lower in 2022, which is confirmed by the gouvernement noting 2,2 pourcent less student this year, mainly professionnal high-school students.
+    """)
+
+
+
     years = sorted(df_summary['Année du Baccalauréat'].unique())
 
-    # Chapter 1: The Landscape of Choices
-    st.header("Chapter 1: The Landscape of Choices")
-    st.write("""
-        Our story begins with the crucial decisions French students face as they approach their baccalaureate. 
-        Let's explore the landscape of these choices, using accurate data on the number of candidates for each subject combination.
-    """)
+    # Chapter 2: The Landscape of Choices
+    st.header("Part 2: The Landscape of Choices")
 
     year_for_sunburst = st.radio("Select a year:", years, key="sunburst_year")
     df_year = df_summary[df_summary['Année du Baccalauréat'] == year_for_sunburst]
@@ -171,13 +201,36 @@ if page == "Data Insights":
         Each segment represents the number of candidates who selected that particular combination of subjects.
     """)
 
+    year_for_bar_chart = st.radio("Select a year:", years, key="bar_chart_year")
+    df_year_bar = df_summary[df_summary['Année du Baccalauréat'] == year_for_bar_chart]
 
-    # Chapter 2: From Aspirations to Admissions
-    st.header("Chapter 2: From Aspirations to Admissions")
-    st.write("""
-        Now, let's explore how students' choices translate into admissions. We'll look at the relationship between 
-        the number of candidates making wishes and those receiving admission offers for each subject combination.
+    df_year_bar['Specialties'] = df_year_bar['Enseignements de spécialité'].apply(lambda x: split_subjects(x))
+    df_exploded = df_year_bar.explode('Specialties')
+
+    df_grouped = df_exploded.groupby('Specialties').agg({'Nombre de candidats bacheliers ayant confirmé au moins un vœu': 'sum'}).reset_index()
+
+    df_filtered_grouped = df_grouped[df_grouped['Nombre de candidats bacheliers ayant confirmé au moins un vœu'] >= min_candidates_threshold]
+
+    top_10_specialties = df_filtered_grouped.nlargest(10, 'Nombre de candidats bacheliers ayant confirmé au moins un vœu')
+    fig_bar_chart = px.bar(top_10_specialties, 
+                        x='Specialties', 
+                        y='Nombre de candidats bacheliers ayant confirmé au moins un vœu',
+                        labels={'Specialties': 'Specialty', 'Nombre de candidats bacheliers ayant confirmé au moins un vœu': 'Number of Wishes'},
+                        title=f"Top 10 Most Chosen Specialties in {year_for_bar_chart}")
+
+    fig_bar_chart.update_layout(height=600, width=1000, title_x=0.5)  # Adjust layout as needed
+    st.plotly_chart(fig_bar_chart, use_container_width=True)
+
+    st.write(f"""
+        This bar chart shows the top 10 most chosen specialties based on the number of confirmed wishes made by students in {year_for_bar_chart}.
+        Each bar represents a specialty and the total number of candidates who selected it.
     """)
+
+
+
+
+    # Chapter 3: From Aspirations to Admissions
+    st.header("Part 3: From Aspirations to Admissions")
 
     
     year_for_tops = st.radio("Select a year:", years, key="tops_years")
@@ -223,34 +276,39 @@ if page == "Data Insights":
         for each subject combination. Each point represents a subject combination, with its size indicating the number of accepted admissions.
     """)
 
-    # Chapter 3: Popular Formations
-    st.header("Chapter 3: Popular Formations")
-    st.write("""
-        Let's examine the most popular formations based on the number of accepted admissions. 
-        Remember, this data is accurate as candidates can only accept one admission offer.
-    """)
+    # Chapter 4: Popular Formations
+    st.header("Part 4: Popular Formations")
 
-    top_formations_1 = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant confirmé au moins un vœu'].sum().nlargest(10)
+    top_formations_wishes = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant confirmé au moins un vœu'].sum().nlargest(10)
+    top_formations_proposals = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission'].sum().nlargest(10)
+    top_formations_accepted = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant accepté une proposition d\'admission'].sum().nlargest(10)
 
-    fig_bar = px.bar(top_formations_1, x=top_formations_1.index, y=top_formations_1.values,
-                    title="Top 10 Formations by Confirmed Wishes",
-                    labels={'y': 'Number of Confirmed Wishes', 'x': 'Formation'})
-    st.plotly_chart(fig_bar, use_container_width=True)
+    top_formations = pd.Index(top_formations_wishes.index).union(top_formations_proposals.index).union(top_formations_accepted.index)
 
-    top_formations_2 = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission'].sum().nlargest(10)
+    df_evolution = pd.DataFrame({
+        'Formation': top_formations,
+        'Confirmed Wishes': df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant confirmé au moins un vœu'].sum().reindex(top_formations).values,
+        'Admission Proposals': df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission'].sum().reindex(top_formations).values,
+        'Accepted Admissions': df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant accepté une proposition d\'admission'].sum().reindex(top_formations).values
+    })
 
-    fig_bar = px.bar(top_formations_2, x=top_formations_2.index, y=top_formations_2.values,
-                    title="Top 10 Formations by Admission Proposals",
-                    labels={'y': 'Number of Admission Proposals', 'x': 'Formation'})
-    st.plotly_chart(fig_bar, use_container_width=True)
+    df_melted = df_evolution.melt(id_vars='Formation', value_vars=['Confirmed Wishes', 'Admission Proposals', 'Accepted Admissions'], 
+                                var_name='Stage', value_name='Count')
+
+    fig_bar_animation = px.bar(df_melted, 
+                            x='Formation', 
+                            y='Count', 
+                            color='Formation',
+                            animation_frame='Stage',
+                            title="Top 15 Formations by Confirmed Wishes, Admission Proposals, and Accepted Admissions",
+                            labels={'Count': 'Number of Students', 'Formation': 'Formation'},
+                            range_y=[0, df_melted['Count'].max()])
+
+    fig_bar_animation.update_layout(transition_duration=1000)
+    st.plotly_chart(fig_bar_animation, use_container_width=True)
 
 
-    top_formations_3 = df_detailed.groupby('Formation')['Nombre de candidats bacheliers ayant accepté une proposition d\'admission'].sum().nlargest(10)
 
-    fig_bar = px.bar(top_formations_3, x=top_formations_3.index, y=top_formations_3.values,
-                    title="Top 10 Formations by Accepted Admissions",
-                    labels={'y': 'Number of Accepted Admissions', 'x': 'Formation'})
-    st.plotly_chart(fig_bar, use_container_width=True)
 
     categories = ["Nombre de candidats bacheliers ayant confirmé au moins un vœu","Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission","Nombre de candidats bacheliers ayant accepté une proposition d\'admission" ]
 
@@ -369,52 +427,12 @@ if page == "Data Insights":
     )
 
 
-
-    # Chapter 4: Trends Over Time
-    st.header("Chapter 4: Trends Over Time")
-    st.write("""
-        Finally, let's look at how the overall number of candidates, admission offers, and acceptances have changed over the years.
-    """)
-
-    yearly_totals = df_summary.groupby('Année du Baccalauréat').agg({
-        'Nombre de candidats bacheliers ayant confirmé au moins un vœu': 'sum',
-        'Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission': 'sum',
-        'Nombre de candidats bacheliers ayant accepté une proposition d\'admission': 'sum'
-    }).reset_index()
-
-    fig_line = px.line(yearly_totals, x='Année du Baccalauréat', 
-                    y=['Nombre de candidats bacheliers ayant confirmé au moins un vœu',
-                        'Nombre de candidats bacheliers ayant reçu au moins une proposition d\'admission',
-                        'Nombre de candidats bacheliers ayant accepté une proposition d\'admission'],
-                    title="Trends in Candidates, Offers, and Acceptances",
-                    labels={'value': 'Number of Candidates', 'variable': 'Category'})
-    st.plotly_chart(fig_line, use_container_width=True)
-
-    st.write("""
-        This line chart shows how the numbers of candidates making wishes, receiving offers, and accepting admissions 
-        have changed over the years. This gives us a broad view of trends in the French higher education system.
-    """)
-
-    st.header("Epilogue: Reflecting on the Journey")
-    st.write("""
-        As we conclude our data-driven journey through the French baccalaureate system, we've seen the 
-        complex interplay of subject choices, evolving aspirations, and the realities of the admission process. 
-        This story, told through data, provides valuable insights for students, educators, and policymakers alike.
-
-        Key takeaways from our journey:
-        1. The diversity of subject combinations reflects the breadth of student interests and the flexibility of the French education system.
-        2. Popular formations evolve over time, likely in response to changing societal and economic needs.
-        3. The relationship between applications and admissions varies widely across formations, highlighting differences in competitiveness and capacity.
-        4. The hierarchical structure of formations and subjects reveals the interconnected nature of higher education choices.
-
-        As we look to the future, this data can guide decisions at all levels, from individual students choosing their educational paths 
-        to policymakers shaping the future of education in France.
-    """)
-
     
     st.write("---")
     st.markdown("© 2024 Thaïs Bordessoul. All rights reserved.")
 
 
 st.sidebar.markdown("---")
-st.sidebar.info("Created by Thaïs Bordessoul | Student in M1 DAI at EFREI PARIS")
+st.sidebar.info("Created by Thaïs Bordessoul")
+st.sidebar.info("Student in M1 DAI at EFREI PARIS")
+
